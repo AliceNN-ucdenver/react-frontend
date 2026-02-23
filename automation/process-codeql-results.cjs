@@ -155,12 +155,13 @@ function parseSARIFResults(sarifPath) {
       const location = result.locations?.[0]?.physicalLocation;
       if (!location) { continue; }
       const rule = run.tool?.driver?.rules?.find(r => r.id === result.ruleId);
-      // Prefer the numeric security-severity score (matches GitHub UI)
-      // over result.level (warning/error/note) which is too coarse
+      // Compute severity from both signals and take the higher of the two.
+      // GitHub's Code Scanning UI uses a combination of the numeric score
+      // AND the SARIF level/kind, so we mirror that by taking the max.
       const secScore = parseFloat(rule?.properties?.['security-severity'] || '');
-      const severity = !isNaN(secScore)
-        ? numericToSeverity(secScore, result.level || 'warning')
-        : (mappings.severity_mapping[result.level] || 'medium');
+      const numericSev = !isNaN(secScore) ? numericToSeverity(secScore) : null;
+      const levelSev = mappings.severity_mapping[result.level] || 'medium';
+      const severity = higherSeverity(numericSev, levelSev);
       vulnerabilities.push({
         ruleId: result.ruleId,
         ruleName: rule?.shortDescription?.text || result.ruleId,
@@ -207,19 +208,21 @@ function groupFindingsByRuleAndFile(findings) {
   return Array.from(groups.values());
 }
 
-// GitHub Code Scanning severity bands (matches the GitHub UI):
-//   critical: 9.0+, high: 7.0+, medium: 4.0+, low: <4.0
-// However, GitHub's "high" also includes some findings scored 6.1-6.9
-// that CodeQL tags with problem.severity=warning. Use the fallback
-// severity_mapping (warning→high) when the numeric score is borderline.
-function numericToSeverity(score, sarifLevel) {
+// Map numeric security-severity score to severity label (CVSS bands)
+function numericToSeverity(score) {
   if (score >= 9.0) { return 'critical'; }
   if (score >= 7.0) { return 'high'; }
-  // Borderline 6.0-6.9: defer to SARIF level — GitHub shows these as "high"
-  // when CodeQL marks them level=warning
-  if (score >= 6.0 && sarifLevel === 'warning') { return 'high'; }
   if (score >= 4.0) { return 'medium'; }
   return 'low';
+}
+
+const SEVERITY_RANK = { low: 0, medium: 1, high: 2, critical: 3 };
+
+// Return the higher of two severity labels (or whichever is non-null)
+function higherSeverity(a, b) {
+  if (!a) { return b || 'medium'; }
+  if (!b) { return a; }
+  return (SEVERITY_RANK[a] || 0) >= (SEVERITY_RANK[b] || 0) ? a : b;
 }
 
 function meetsSeverityThreshold(severity) {
