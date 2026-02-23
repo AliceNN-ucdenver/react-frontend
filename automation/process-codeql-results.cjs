@@ -159,7 +159,7 @@ function parseSARIFResults(sarifPath) {
       // over result.level (warning/error/note) which is too coarse
       const secScore = parseFloat(rule?.properties?.['security-severity'] || '');
       const severity = !isNaN(secScore)
-        ? numericToSeverity(secScore)
+        ? numericToSeverity(secScore, result.level || 'warning')
         : (mappings.severity_mapping[result.level] || 'medium');
       vulnerabilities.push({
         ruleId: result.ruleId,
@@ -207,9 +207,17 @@ function groupFindingsByRuleAndFile(findings) {
   return Array.from(groups.values());
 }
 
-function numericToSeverity(score) {
+// GitHub Code Scanning severity bands (matches the GitHub UI):
+//   critical: 9.0+, high: 7.0+, medium: 4.0+, low: <4.0
+// However, GitHub's "high" also includes some findings scored 6.1-6.9
+// that CodeQL tags with problem.severity=warning. Use the fallback
+// severity_mapping (warning→high) when the numeric score is borderline.
+function numericToSeverity(score, sarifLevel) {
   if (score >= 9.0) { return 'critical'; }
   if (score >= 7.0) { return 'high'; }
+  // Borderline 6.0-6.9: defer to SARIF level — GitHub shows these as "high"
+  // when CodeQL marks them level=warning
+  if (score >= 6.0 && sarifLevel === 'warning') { return 'high'; }
   if (score >= 4.0) { return 'medium'; }
   return 'low';
 }
