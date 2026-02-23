@@ -155,22 +155,22 @@ function parseSARIFResults(sarifPath) {
       const location = result.locations?.[0]?.physicalLocation;
       if (!location) { continue; }
       const rule = run.tool?.driver?.rules?.find(r => r.id === result.ruleId);
+      // Normalize level first — SARIF may omit it; CodeQL defaults to 'warning'
+      const level = result.level || 'warning';
       // Compute severity from both signals and take the higher of the two.
       // GitHub's Code Scanning UI uses a combination of the numeric score
       // AND the SARIF level/kind, so we mirror that by taking the max.
-      // SARIF level mapping is hardcoded to match GitHub's behavior
-      // (error=critical, warning=high, note=medium, none=low).
       const SARIF_LEVEL_SEV = { error: 'critical', warning: 'high', note: 'medium', none: 'low' };
       const secScore = parseFloat(rule?.properties?.['security-severity'] || '');
       const numericSev = !isNaN(secScore) ? numericToSeverity(secScore) : null;
-      const levelSev = SARIF_LEVEL_SEV[result.level] || 'medium';
+      const levelSev = SARIF_LEVEL_SEV[level] || 'medium';
       const severity = higherSeverity(numericSev, levelSev);
       vulnerabilities.push({
         ruleId: result.ruleId,
         ruleName: rule?.shortDescription?.text || result.ruleId,
         ruleHelp: rule?.help?.text || '',
         message: result.message?.text || '',
-        level: result.level || 'warning',
+        level,
         severity,
         filePath: location.artifactLocation?.uri || 'unknown',
         startLine: location.region?.startLine || 1,
