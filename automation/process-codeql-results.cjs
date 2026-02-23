@@ -158,9 +158,12 @@ function parseSARIFResults(sarifPath) {
       // Compute severity from both signals and take the higher of the two.
       // GitHub's Code Scanning UI uses a combination of the numeric score
       // AND the SARIF level/kind, so we mirror that by taking the max.
+      // SARIF level mapping is hardcoded to match GitHub's behavior
+      // (error=critical, warning=high, note=medium, none=low).
+      const SARIF_LEVEL_SEV = { error: 'critical', warning: 'high', note: 'medium', none: 'low' };
       const secScore = parseFloat(rule?.properties?.['security-severity'] || '');
       const numericSev = !isNaN(secScore) ? numericToSeverity(secScore) : null;
-      const levelSev = mappings.severity_mapping[result.level] || 'medium';
+      const levelSev = SARIF_LEVEL_SEV[result.level] || 'medium';
       const severity = higherSeverity(numericSev, levelSev);
       vulnerabilities.push({
         ruleId: result.ruleId,
