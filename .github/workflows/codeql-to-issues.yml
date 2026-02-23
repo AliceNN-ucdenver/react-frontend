@@ -93,7 +93,7 @@ jobs:
         ENABLE_THREAT_MODEL: 'true'
         PROMPT_REPO: 'AliceNN-ucdenver/MaintainabilityAI'
         PROMPT_BRANCH: 'main'
-      run: node automation/process-codeql-results.js
+      run: node automation/process-codeql-results.cjs
 
     - name: Upload processing logs
       uses: actions/upload-artifact@v4
