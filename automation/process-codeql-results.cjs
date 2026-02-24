@@ -155,16 +155,22 @@ function parseSARIFResults(sarifPath) {
       const location = result.locations?.[0]?.physicalLocation;
       if (!location) { continue; }
       const rule = run.tool?.driver?.rules?.find(r => r.id === result.ruleId);
-      // Normalize level first — SARIF may omit it; CodeQL defaults to 'warning'
       const level = result.level || 'warning';
-      // Compute severity from both signals and take the higher of the two.
-      // GitHub's Code Scanning UI uses a combination of the numeric score
-      // AND the SARIF level/kind, so we mirror that by taking the max.
-      const SARIF_LEVEL_SEV = { error: 'critical', warning: 'high', note: 'medium', none: 'low' };
+
+      // Severity: prefer the numeric security-severity score from CodeQL rule properties.
+      // This matches what GitHub's Code Scanning UI displays.
+      // Only fall back to SARIF level mapping when no numeric score is available.
       const secScore = parseFloat(rule?.properties?.['security-severity'] || '');
-      const numericSev = !isNaN(secScore) ? numericToSeverity(secScore) : null;
-      const levelSev = SARIF_LEVEL_SEV[level] || 'medium';
-      const severity = higherSeverity(numericSev, levelSev);
+      const SARIF_LEVEL_SEV = { error: 'critical', warning: 'high', note: 'medium', none: 'low' };
+      const severity = !isNaN(secScore) ? numericToSeverity(secScore) : (SARIF_LEVEL_SEV[level] || 'medium');
+
+      // Detailed logging for debugging severity classification
+      log('INFO', `  Rule: ${result.ruleId} | Level: ${level} | security-severity: ${isNaN(secScore) ? '(none)' : secScore} | Resolved: ${severity} | File: ${location.artifactLocation?.uri || 'unknown'}`);
+      if (rule) {
+        log('INFO', `    Rule tags: ${(rule.properties?.tags || []).join(', ') || '(none)'}`);
+        log('INFO', `    Rule precision: ${rule.properties?.precision || '(none)'} | kind: ${rule.properties?.kind || result.kind || '(none)'}`);
+      }
+
       vulnerabilities.push({
         ruleId: result.ruleId,
         ruleName: rule?.shortDescription?.text || result.ruleId,
@@ -172,6 +178,7 @@ function parseSARIFResults(sarifPath) {
         message: result.message?.text || '',
         level,
         severity,
+        securityScore: isNaN(secScore) ? null : secScore,
         filePath: location.artifactLocation?.uri || 'unknown',
         startLine: location.region?.startLine || 1,
         endLine: location.region?.endLine || location.region?.startLine || 1,
@@ -181,9 +188,6 @@ function parseSARIFResults(sarifPath) {
     }
   }
   log('SUCCESS', `Parsed ${vulnerabilities.length} vulnerabilities from SARIF`);
-  for (const v of vulnerabilities) {
-    log('INFO', `  Rule: ${v.ruleId} | Level: ${v.level} | Severity: ${v.severity} | File: ${v.filePath}`);
-  }
   return vulnerabilities;
 }
 
@@ -219,14 +223,6 @@ function numericToSeverity(score) {
   return 'low';
 }
 
-const SEVERITY_RANK = { low: 0, medium: 1, high: 2, critical: 3 };
-
-// Return the higher of two severity labels (or whichever is non-null)
-function higherSeverity(a, b) {
-  if (!a) { return b || 'medium'; }
-  if (!b) { return a; }
-  return (SEVERITY_RANK[a] || 0) >= (SEVERITY_RANK[b] || 0) ? a : b;
-}
 
 function meetsSeverityThreshold(severity) {
   const levels = ['low', 'medium', 'high', 'critical'];
